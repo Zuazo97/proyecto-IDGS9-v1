@@ -1,0 +1,899 @@
+openapi: 3.0.3
+info:
+  title: API Proyecto Final IDGS 9° — UTR
+  version: 1.0.0
+  description: |
+    API única para los tres proyectos del Proyecto Final Integrador (Web con React + Vite y Móvil con React Native + Expo).
+
+    | Proyecto | Módulo | Rutas |
+    |---|---|---|
+    | Todos | Auth y Usuarios | `/api/auth/*`, `/api/users/*` |
+    | **A** | Biblioteca Universitaria | `/api/books`, `/api/loans/books` |
+    | **B** | Material Deportivo | `/api/sports/items`, `/api/sports/loans` |
+    | **C** | Laboratorios de Cómputo | `/api/labs/computers`, `/api/labs/equipment`, `/api/labs/assignments` |
+
+    ## Doble token
+    * **`x-api-token`** (todas las peticiones): identifica a tu **equipo**. Tus usuarios y datos están aislados de los demás equipos.
+      Solo puedes usar los módulos del proyecto asignado a tu equipo (si no → `403 PROJECT_NOT_ALLOWED`).
+    * **`Authorization: Bearer <token>`**: se obtiene en `POST /api/auth/login`. El payload trae `id`, `matricula` y `rol`.
+
+    ## Errores
+    Todas las respuestas de error tienen la forma `{ "message": "...", "code": "...", "errors": [{ "campo", "mensaje" }] }`.
+
+    | Código | Cuándo |
+    |---|---|
+    | 400 | Datos inválidos (`errors` trae el detalle por campo) |
+    | 401 | Falta/inválido `x-api-token` (`APP_TOKEN_*`) o el JWT (`TOKEN_MISSING`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `USER_INACTIVE`) → **limpia la sesión y manda al Login** |
+    | 403 | Tu rol no tiene permiso (`FORBIDDEN`) o tu equipo no tiene ese proyecto (`PROJECT_NOT_ALLOWED`) → **pantalla de acceso restringido** |
+    | 404 | No existe el recurso o la ruta |
+    | 409 | Conflicto: duplicado, sin stock, PC ocupada, ya devuelto... |
+    | 429 | Demasiadas peticiones |
+
+    > **Para probar aquí:** pulsa **Authorize**, pega tu `x-api-token`, ejecuta `POST /api/auth/login`, copia el `token` y pégalo en `bearerAuth`.
+servers:
+  - url: /
+    description: Este servidor
+security:
+  - appToken: []
+    bearerAuth: []
+tags:
+  - name: Sistema
+  - name: Auth
+  - name: Usuarios
+    description: Solo ADMIN
+  - name: A · Libros
+  - name: A · Préstamos de libros
+  - name: B · Material deportivo
+  - name: B · Préstamos deportivos
+  - name: C · Computadoras
+  - name: C · Periféricos
+  - name: C · Asignaciones
+
+paths:
+  /api/health:
+    get:
+      tags: [Sistema]
+      summary: Estado del servicio (público, sin tokens)
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example: { status: ok, db: conectado, uptime: 120, time: '2026-11-24T16:00:00.000Z' }
+
+  # ---------------------------------------------------------------- AUTH
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Registrar usuario (siempre con rol USER)
+      security: [{ appToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, matricula, email, password]
+              properties:
+                nombre: { type: string, example: Ana Pérez }
+                matricula: { type: string, example: UTR22001 }
+                email: { type: string, format: email, example: ana@utr.edu.mx }
+                password: { type: string, minLength: 6, example: secreta1 }
+                rol: { type: string, description: 'Se ignora: el registro siempre crea USER', example: USER }
+      responses:
+        '201':
+          description: Usuario registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Usuario registrado }
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión
+      security: [{ appToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: admin@equipo-a1.utr }
+                password: { type: string, example: Utr-xxxxxxx }
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... }
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Usuario autenticado (extra, útil para restaurar sesión)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- USERS
+  /api/users:
+    get:
+      tags: [Usuarios]
+      summary: Listar usuarios del equipo
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: 'Busca en nombre, matrícula o email' }
+        - { name: rol, in: query, schema: { type: string, enum: [USER, ADMIN] } }
+        - { name: activo, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/User' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/users/{id}:
+    get:
+      tags: [Usuarios]
+      summary: Detalle de usuario
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/users/{id}/role:
+    patch:
+      tags: [Usuarios]
+      summary: Cambiar rol (un ADMIN no puede quitarse su propio rol)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rol]
+              properties:
+                rol: { type: string, enum: [ADMIN, USER] }
+      responses:
+        '200':
+          description: Rol actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Rol actualizado }
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/users/{id}/status:
+    patch:
+      tags: [Usuarios]
+      summary: Activar / desactivar usuario (extra)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activo]
+              properties:
+                activo: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Usuario desactivado }
+                  user: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------------------------------------------------------------- A · BOOKS
+  /api/books:
+    get:
+      tags: [A · Libros]
+      summary: Catálogo de libros
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: 'Título, autor o ISBN' }
+        - { name: categoria, in: query, schema: { type: string }, description: 'Coincidencia exacta (sin distinguir mayúsculas)' }
+        - { name: disponible, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Book' } }
+    post:
+      tags: [A · Libros]
+      summary: Registrar libro (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookInput' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Book' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/books/categories:
+    get:
+      tags: [A · Libros]
+      summary: Categorías existentes (extra, para el filtro)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example: [Bases de Datos, Literatura, Software]
+  /api/books/{id}:
+    get:
+      tags: [A · Libros]
+      summary: Detalle de libro (extra)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Book' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [A · Libros]
+      summary: Editar libro (ADMIN). Todos los campos son opcionales.
+      description: Si cambia `stockTotal`, `stockDisponible` se ajusta por la diferencia. No puede quedar por debajo de lo prestado (409).
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookInput' }
+            example: { titulo: Clean Code, autor: R. Martin, stockTotal: 6 }
+      responses:
+        '200':
+          description: Libro actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Libro actualizado }
+                  book: { $ref: '#/components/schemas/Book' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/loans/books:
+    get:
+      tags: [A · Préstamos de libros]
+      summary: Préstamos (ADMIN ve todos; USER solo los suyos)
+      parameters:
+        - { name: estatus, in: query, schema: { type: string, enum: [PRESTADO, DEVUELTO] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/BookLoan' } }
+    post:
+      tags: [A · Préstamos de libros]
+      summary: Solicitar préstamo
+      description: Para USER el `userId` se ignora (siempre es el usuario del token). ADMIN puede prestar a nombre de otro usuario.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bookId, fechaDevolucionEstimada]
+              properties:
+                bookId: { type: integer, example: 1 }
+                userId: { type: integer, example: 2 }
+                fechaDevolucionEstimada: { type: string, format: date, example: '2026-12-01' }
+      responses:
+        '201':
+          description: Préstamo creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookLoan' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/loans/books/{id}/return:
+    patch:
+      tags: [A · Préstamos de libros]
+      summary: Registrar devolución (ADMIN)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                observaciones: { type: string, example: Entregado en buen estado }
+      responses:
+        '200':
+          description: Devuelto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookLoan' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------------------------------------------------------------- B · SPORTS
+  /api/sports/items:
+    get:
+      tags: [B · Material deportivo]
+      summary: Inventario
+      parameters:
+        - { name: deporte, in: query, schema: { type: string }, example: Fútbol }
+        - { name: disponible, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: search, in: query, schema: { type: string }, description: 'Nombre o código' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SportItem' } }
+    post:
+      tags: [B · Material deportivo]
+      summary: Alta de ítem (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SportItemInput' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SportItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/sports/items/sports:
+    get:
+      tags: [B · Material deportivo]
+      summary: Disciplinas existentes (extra, para el filtro)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example: [Básquetbol, Fútbol, Voleibol]
+  /api/sports/items/{id}:
+    get:
+      tags: [B · Material deportivo]
+      summary: Detalle de ítem (extra)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SportItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [B · Material deportivo]
+      summary: Editar ítem (ADMIN). Todos los campos son opcionales.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SportItemInput' }
+            example: { estadoFisico: DESGASTADO, cantidadTotal: 9 }
+      responses:
+        '200':
+          description: Ítem actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Ítem actualizado }
+                  item: { $ref: '#/components/schemas/SportItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/sports/loans:
+    get:
+      tags: [B · Préstamos deportivos]
+      summary: Préstamos (ADMIN ve todos; USER solo los suyos)
+      parameters:
+        - { name: estatus, in: query, schema: { type: string, enum: [ACTIVO, FINALIZADO] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SportLoan' } }
+    post:
+      tags: [B · Préstamos deportivos]
+      summary: Solicitar préstamo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [itemId, cantidad, canchaOActividad]
+              properties:
+                itemId: { type: integer, example: 1 }
+                userId: { type: integer, description: 'Solo ADMIN' }
+                cantidad: { type: integer, minimum: 1, example: 2 }
+                canchaOActividad: { type: string, example: Cancha 2 - Torneo }
+      responses:
+        '201':
+          description: Préstamo creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SportLoan' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/sports/loans/{id}/return:
+    patch:
+      tags: [B · Préstamos deportivos]
+      summary: Recibir material (ADMIN)
+      description: '`BUENO` regresa la cantidad a disponibles. `DANADO` (también acepta `DAÑADO`) la da de baja de `cantidadTotal`.'
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estadoDevolucion]
+              properties:
+                estadoDevolucion: { type: string, enum: [BUENO, DANADO] }
+                notas: { type: string }
+      responses:
+        '200':
+          description: Finalizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SportLoan' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------------------------------------------------------------- C · LABS
+  /api/labs/computers:
+    get:
+      tags: [C · Computadoras]
+      summary: Computadoras
+      parameters:
+        - { name: laboratorio, in: query, schema: { type: string }, example: Lab-A }
+        - { name: estatus, in: query, schema: { type: string, enum: [DISPONIBLE, OCUPADA, MANTENIMIENTO] } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Computer' } }
+    post:
+      tags: [C · Computadoras]
+      summary: Registrar computadora (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [numeroInventario, laboratorio, especificaciones]
+              properties:
+                numeroInventario: { type: string, example: UTR-PC-01 }
+                laboratorio: { type: string, example: Lab-A }
+                especificaciones: { type: string, example: 'Core i7, 16GB RAM' }
+                perifericosIncluidos: { type: array, items: { type: string }, example: [Monitor, Teclado, Mouse] }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Computer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/labs/computers/labs:
+    get:
+      tags: [C · Computadoras]
+      summary: Laboratorios existentes (extra, para el selector)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example: [Lab-A, Lab-B, Redes]
+  /api/labs/computers/{id}:
+    get:
+      tags: [C · Computadoras]
+      summary: Detalle de computadora (extra)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Computer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [C · Computadoras]
+      summary: Editar PC o pasarla entre DISPONIBLE y MANTENIMIENTO (extra, ADMIN)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                laboratorio: { type: string }
+                especificaciones: { type: string }
+                perifericosIncluidos: { type: array, items: { type: string } }
+                estatus: { type: string, enum: [DISPONIBLE, MANTENIMIENTO] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  computer: { $ref: '#/components/schemas/Computer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/labs/equipment:
+    get:
+      tags: [C · Periféricos]
+      summary: Listar periféricos (extra)
+      parameters:
+        - { name: laboratorio, in: query, schema: { type: string } }
+        - { name: tipo, in: query, schema: { type: string } }
+        - { name: estatus, in: query, schema: { type: string, enum: [DISPONIBLE, EN_USO, MANTENIMIENTO, BAJA] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Equipment' } }
+    post:
+      tags: [C · Periféricos]
+      summary: Registrar periférico (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipo, numeroSerie, laboratorio]
+              properties:
+                tipo: { type: string, example: Proyector, description: 'Proyector | Cable HDMI | Switch | ...' }
+                numeroSerie: { type: string, example: EPS-12345 }
+                laboratorio: { type: string, example: Lab-A }
+                descripcion: { type: string }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Equipment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/labs/equipment/{id}:
+    patch:
+      tags: [C · Periféricos]
+      summary: Editar periférico (extra, ADMIN)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tipo: { type: string }
+                numeroSerie: { type: string }
+                laboratorio: { type: string }
+                descripcion: { type: string }
+                estatus: { type: string, enum: [DISPONIBLE, EN_USO, MANTENIMIENTO, BAJA] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  equipment: { $ref: '#/components/schemas/Equipment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/labs/assignments:
+    get:
+      tags: [C · Asignaciones]
+      summary: Asignaciones (ADMIN ve todas = monitor; USER solo las suyas)
+      description: 'Para la pantalla "Mi sesión activa" usa `?estatus=ASIGNADA`.'
+      parameters:
+        - { name: estatus, in: query, schema: { type: string, enum: [ASIGNADA, LIBERADA] } }
+        - { name: laboratorio, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Assignment' } }
+    post:
+      tags: [C · Asignaciones]
+      summary: Asignar computadora
+      description: La PC debe estar DISPONIBLE y el usuario no debe tener otra asignación activa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [computerId, materia, horasUso]
+              properties:
+                computerId: { type: integer, example: 1 }
+                userId: { type: integer, description: 'Solo ADMIN' }
+                materia: { type: string, example: Desarrollo Web }
+                horasUso: { type: number, minimum: 0.5, maximum: 12, example: 2 }
+      responses:
+        '201':
+          description: Asignada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assignment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/labs/assignments/{id}/release:
+    patch:
+      tags: [C · Asignaciones]
+      summary: Liberar equipo (USER la suya; ADMIN cualquiera = liberación forzada)
+      description: Con `reporteFalla true` la PC pasa a MANTENIMIENTO y `descripcionFalla` es obligatoria (mín. 5 caracteres).
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reporteFalla: { type: boolean, default: false }
+                descripcionFalla: { type: string, example: '' }
+      responses:
+        '200':
+          description: Liberada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assignment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+components:
+  securitySchemes:
+    appToken:
+      type: apiKey
+      in: header
+      name: x-api-token
+      description: Token de tu equipo (te lo da el docente)
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token obtenido en POST /api/auth/login
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+  responses:
+    BadRequest:
+      description: Datos inválidos
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: Datos inválidos, code: BAD_REQUEST, errors: [{ campo: email, mensaje: Email inválido }] }
+    Unauthorized:
+      description: Sin sesión válida → limpiar token y redirigir al Login
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: 'La sesión expiró, inicia sesión de nuevo', code: TOKEN_EXPIRED }
+    Forbidden:
+      description: Acceso restringido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: 'Acceso restringido: se requiere rol ADMIN', code: FORBIDDEN }
+    NotFound:
+      description: No encontrado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: Recurso no encontrado, code: NOT_FOUND }
+    Conflict:
+      description: Conflicto con el estado actual
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: No hay ejemplares disponibles de este libro, code: OUT_OF_STOCK }
+  schemas:
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+        code: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              campo: { type: string }
+              mensaje: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        nombre: { type: string, example: Ana Pérez }
+        matricula: { type: string, example: UTR22001 }
+        email: { type: string, example: ana@utr.edu.mx }
+        rol: { type: string, enum: [USER, ADMIN] }
+        activo: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    BookInput:
+      type: object
+      required: [isbn, titulo, autor, categoria, stockTotal]
+      properties:
+        isbn: { type: string, example: 978-0132350884 }
+        titulo: { type: string, example: Clean Code }
+        autor: { type: string, example: R. Martin }
+        categoria: { type: string, example: Software }
+        stockTotal: { type: integer, minimum: 0, example: 5 }
+    Book:
+      type: object
+      properties:
+        id: { type: integer, example: 10 }
+        isbn: { type: string, example: 978-0132350884 }
+        titulo: { type: string, example: Clean Code }
+        autor: { type: string, example: R. Martin }
+        categoria: { type: string, example: Software }
+        stockTotal: { type: integer, example: 5 }
+        stockDisponible: { type: integer, example: 3 }
+    BookLoan:
+      type: object
+      properties:
+        loanId: { type: integer, example: 50 }
+        bookId: { type: integer, example: 10 }
+        libro: { type: string, example: Clean Code }
+        isbn: { type: string }
+        autor: { type: string }
+        userId: { type: integer, example: 1 }
+        usuario: { type: string, example: Ana Pérez }
+        matricula: { type: string }
+        estatus: { type: string, enum: [PRESTADO, DEVUELTO] }
+        fechaPrestamo: { type: string, format: date, example: '2026-11-18' }
+        fechaDevolucionEstimada: { type: string, format: date, example: '2026-11-25' }
+        fechaDevolucionReal: { type: string, format: date, nullable: true, example: null }
+        vencido: { type: boolean, description: 'PRESTADO y la fecha estimada ya pasó' }
+        observaciones: { type: string }
+    SportItemInput:
+      type: object
+      required: [codigo, nombre, deporte, cantidadTotal]
+      properties:
+        codigo: { type: string, example: DEP-01 }
+        nombre: { type: string, example: 'Balón Fútbol #5' }
+        deporte: { type: string, example: Fútbol }
+        estadoFisico: { type: string, enum: [NUEVO, BUENO, DESGASTADO], default: NUEVO }
+        cantidadTotal: { type: integer, minimum: 0, example: 10 }
+    SportItem:
+      type: object
+      properties:
+        id: { type: integer, example: 5 }
+        codigo: { type: string, example: DEP-01 }
+        nombre: { type: string, example: 'Balón Fútbol #5' }
+        deporte: { type: string, example: Fútbol }
+        estadoFisico: { type: string, enum: [NUEVO, BUENO, DESGASTADO] }
+        cantidadTotal: { type: integer, example: 10 }
+        disponibles: { type: integer, example: 8 }
+    SportLoan:
+      type: object
+      properties:
+        loanId: { type: integer, example: 88 }
+        itemId: { type: integer, example: 5 }
+        item: { type: string, example: 'Balón Fútbol #5' }
+        codigo: { type: string }
+        deporte: { type: string }
+        cantidad: { type: integer, example: 2 }
+        canchaOActividad: { type: string, example: Cancha 2 - Torneo }
+        userId: { type: integer }
+        usuario: { type: string, example: Carlos Ruiz }
+        matricula: { type: string }
+        estatus: { type: string, enum: [ACTIVO, FINALIZADO] }
+        horaSalida: { type: string, format: date-time }
+        horaDevolucion: { type: string, format: date-time, nullable: true }
+        estadoDevolucion: { type: string, enum: [BUENO, DANADO], nullable: true }
+        notas: { type: string }
+    Computer:
+      type: object
+      properties:
+        id: { type: integer, example: 101 }
+        numeroInventario: { type: string, example: UTR-PC-01 }
+        laboratorio: { type: string, example: Lab-A }
+        especificaciones: { type: string, example: 'Core i7, 16GB RAM' }
+        perifericosIncluidos: { type: array, items: { type: string } }
+        estatus: { type: string, enum: [DISPONIBLE, OCUPADA, MANTENIMIENTO] }
+        ultimoReporteFalla: { type: string, nullable: true }
+    Equipment:
+      type: object
+      properties:
+        id: { type: integer, example: 30 }
+        tipo: { type: string, example: Proyector }
+        numeroSerie: { type: string }
+        laboratorio: { type: string }
+        descripcion: { type: string }
+        estatus: { type: string, enum: [DISPONIBLE, EN_USO, MANTENIMIENTO, BAJA] }
+    Assignment:
+      type: object
+      properties:
+        assignmentId: { type: integer, example: 210 }
+        computerId: { type: integer, example: 101 }
+        pc: { type: string, example: UTR-PC-01 }
+        laboratorio: { type: string, example: Lab-A }
+        especificaciones: { type: string }
+        pcEstatus: { type: string, enum: [DISPONIBLE, OCUPADA, MANTENIMIENTO] }
+        userId: { type: integer }
+        usuario: { type: string, example: Luis Gómez }
+        matricula: { type: string }
+        materia: { type: string, example: Desarrollo Web }
+        horasUso: { type: number, example: 2 }
+        inicio: { type: string, format: date-time }
+        finEstimado: { type: string, format: date-time }
+        fin: { type: string, format: date-time, nullable: true }
+        estatus: { type: string, enum: [ASIGNADA, LIBERADA] }
+        reporteFalla: { type: boolean }
+        descripcionFalla: { type: string }
+        liberacionForzada: { type: boolean }

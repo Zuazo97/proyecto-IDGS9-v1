@@ -1,0 +1,22 @@
+# Blueprint de Render (https://render.com/docs/blueprint-spec)
+# Dashboard → New → Blueprint → selecciona este repo.
+services:
+  - type: web
+    name: proyecto-idgs9-v1
+    runtime: node
+    plan: free
+    region: virginia # misma región que el cluster de Atlas (AWS N. Virginia / us-east-1)
+    branch: main
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: JWT_SECRET
+        generateValue: true # Render genera un secreto aleatorio
+      - key: MONGODB_URI
+        sync: false # se captura a mano en el dashboard (no va en el repo)
