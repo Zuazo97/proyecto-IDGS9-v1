@@ -9,7 +9,7 @@ API REST **única** para los tres proyectos del *Proyecto Final Integrador* de 9
 | **B** | Préstamo de Material Deportivo | `/api/sports/items`, `/api/sports/loans` |
 | **C** | Laboratorios de Cómputo | `/api/labs/computers`, `/api/labs/equipment`, `/api/labs/assignments` |
 
-**Stack:** Node.js 22+, Express 5, MongoDB Atlas (Mongoose), JWT, zod y Swagger UI. Se despliega en Render (plan gratuito).
+**Stack:** Node.js 24, Express 5, MongoDB Atlas (Mongoose), JWT, zod y Swagger UI. Se despliega en Render (plan gratuito).
 
 - 📘 Documentación interactiva: **`<URL>/api/docs`**
 - 📦 Especificación OpenAPI para importar en Postman o Insomnia: **`<URL>/api/docs.json`**
