@@ -1,0 +1,52 @@
+{
+  "name": "proyecto-idgs9-v1",
+  "version": "1.0.0",
+  "description": "API REST única (Express + MongoDB) para los proyectos finales 9° IDGS UTR: Biblioteca, Material Deportivo y Laboratorios de Cómputo",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "seed": "node --env-file-if-exists=.env scripts/seed.js",
+    "app:create": "node --env-file-if-exists=.env scripts/create-app.js",
+    "app:list": "node --env-file-if-exists=.env scripts/list-apps.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zuazo97/proyecto-IDGS9-v1.git"
+  },
+  "keywords": [
+    "utr",
+    "idgs",
+    "express",
+    "mongodb",
+    "jwt"
+  ],
+  "author": "Zuazo97",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Zuazo97/proyecto-IDGS9-v1/issues"
+  },
+  "homepage": "https://github.com/Zuazo97/proyecto-IDGS9-v1#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.5",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.13.0",
+    "morgan": "^1.12.1",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.4.0",
+    "supertest": "^7.3.2"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
