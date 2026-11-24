@@ -1,6 +1,6 @@
 {
   "name": "proyecto-idgs9-v1",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "API REST única (Express + MongoDB) para los proyectos finales 9° IDGS UTR: Biblioteca, Material Deportivo y Laboratorios de Cómputo",
   "main": "src/server.js",
   "scripts": {
@@ -47,6 +47,6 @@
     "supertest": "^7.3.2"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": "24.x"
   }
 }
