@@ -11,9 +11,10 @@ API REST **única** para los tres proyectos del *Proyecto Final Integrador* de 9
 
 **Stack:** Node.js 24, Express 5, MongoDB Atlas (Mongoose), JWT, zod y Swagger UI. Se despliega en Render (plan gratuito).
 
-- 📘 Documentación interactiva: **`<URL>/api/docs`**
-- 📦 Especificación OpenAPI para importar en Postman o Insomnia: **`<URL>/api/docs.json`**
-- ❤️ Salud del servicio: **`<URL>/api/health`**
+- 🌐 URL de producción: **https://proyecto-idgs9-v1.onrender.com**
+- 📘 Documentación interactiva: **https://proyecto-idgs9-v1.onrender.com/api/docs**
+- 📦 Especificación OpenAPI para importar en Postman o Insomnia: **https://proyecto-idgs9-v1.onrender.com/api/docs.json**
+- ❤️ Salud del servicio: **https://proyecto-idgs9-v1.onrender.com/api/health**
 
 ---
 
@@ -22,7 +23,7 @@ API REST **única** para los tres proyectos del *Proyecto Final Integrador* de 9
 ### 1. Lo que te entrega el docente
 | Dato | Ejemplo | Dónde va |
 |---|---|---|
-| URL base | `https://proyecto-idgs9-v1.onrender.com` | `VITE_API_URL` / `EXPO_PUBLIC_API_URL` |
+| URL base | `https://proyecto-idgs9-v1.onrender.com` (producción) | `VITE_API_URL` / `EXPO_PUBLIC_API_URL` |
 | `x-api-token` de tu equipo | `utr-idgs9-equipo-a1-…` | `VITE_API_APP_TOKEN` / `EXPO_PUBLIC_API_APP_TOKEN` |
 | Usuario ADMIN | `admin@equipo-a1.utr` + contraseña | Para probar el panel de administrador |
 | Usuario demo | `alumno@equipo-a1.utr` + contraseña | Para probar las vistas de USER |
@@ -115,13 +116,16 @@ npm run app:list                              # tabla con equipos y tokens
    1. Crea un cluster **M0 (Free)** en AWS **N. Virginia (us-east-1)**.
    2. En *Database Access*, crea un usuario con rol *Read and write to any database*.
    3. En *Network Access*, agrega `0.0.0.0/0`. Render no tiene IP fija; la seguridad la dan el usuario y la contraseña.
+      Si falta esta regla, Render muestra `MongoNetworkError … tlsv1 alert internal error … SSL alert number 80`.
    4. En *Connect → Drivers*, copia la URI y agrega el nombre de la base: `…mongodb.net/idgs9?retryWrites=true&w=majority`.
 2. **Render** (<https://dashboard.render.com>)
    1. Ve a *New → Blueprint* y conecta este repo de GitHub. Render lee `render.yaml`.
    2. Captura `MONGODB_URI`. `JWT_SECRET` se genera solo.
-   3. Cada push a `main` vuelve a desplegar. Verifica con `https://<servicio>.onrender.com/api/health`.
+      Si en lugar de Blueprint creas un *Web Service* normal, agrega a mano `JWT_SECRET` (aleatorio), `NODE_ENV=production` y `JWT_EXPIRES_IN=8h`.
+      Si falta `JWT_SECRET`, el servidor no arranca: `Faltan variables de entorno: JWT_SECRET`.
+   3. Cada push a `main` vuelve a desplegar. Verifica con `https://proyecto-idgs9-v1.onrender.com/api/health`.
 3. **Seed en producción:** desde tu máquina, con la URI de Atlas en `.env`, corre `npm run seed`.
-4. **Keep-alive (opcional):** en GitHub ve a *Settings → Secrets and variables → Actions → Variables* y crea `API_URL=https://<servicio>.onrender.com`. El workflow `keep-alive` hace ping cada 10 min de 7:00 a 23:00 (hora del centro de México).
+4. **Keep-alive (opcional):** en GitHub ve a *Settings → Secrets and variables → Actions → Variables* y crea `API_URL=https://proyecto-idgs9-v1.onrender.com`. El workflow `keep-alive` hace ping cada 10 min de 7:00 a 23:00 (hora del centro de México).
 
 ### Seguridad
 - El `x-api-token` identifica al **equipo**, no es un secreto fuerte: viaja en el bundle de Vite y del APK. Si un token se filtra, desactiva el equipo (`activo: false` en la colección `apps`) y crea otro.
